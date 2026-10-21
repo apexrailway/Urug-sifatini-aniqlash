@@ -1,10 +1,11 @@
-import React, { useState, useRef, useCallback } from 'react';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
+import React, { useState, useRef } from 'react';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { AppView, SeedAnalysisResult, ChartData } from './types';
 import { analyzeSeedImage } from './services/geminiService';
 import { Button } from './components/Button';
-import { StatCard } from './components/StatCard';
 import { LoadingOverlay } from './components/LoadingOverlay';
+import { QualityGauge } from './components/QualityGauge';
+import { SeedTable } from './components/SeedTable';
 
 // Icons
 const CameraIcon = () => <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>;
@@ -19,6 +20,7 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [showHealthy, setShowHealthy] = useState<boolean>(true);
   const [showBroken, setShowBroken] = useState<boolean>(true);
+  const [activeTab, setActiveTab] = useState<'chart' | 'table'>('chart');
   const videoRef = useRef<HTMLVideoElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -98,6 +100,7 @@ const App: React.FC = () => {
     setAnalysisResult(null);
     setShowHealthy(true);
     setShowBroken(true);
+    setActiveTab('chart');
     setCurrentView(AppView.HOME);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -109,8 +112,8 @@ const App: React.FC = () => {
   const renderHome = () => (
     <div className="flex flex-col items-center justify-center min-h-screen p-6 max-w-md mx-auto w-full">
       <div className="mb-10 text-center">
-        <div className="w-20 h-20 bg-green-100 rounded-3xl flex items-center justify-center mx-auto mb-4 text-green-600 shadow-md">
-           <svg className="w-10 h-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <div className="w-20 h-20 bg-gradient-to-br from-green-100 to-emerald-100 rounded-3xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-green-100/50">
+           <svg className="w-10 h-10 text-green-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
             <path d="M12 6a4 4 0 1 0 0 8 4 4 0 0 0 0-8z" fill="#16a34a" stroke="none"/>
            </svg>
@@ -161,7 +164,7 @@ const App: React.FC = () => {
         </div>
       </div>
       
-      <p className="mt-12 text-xs text-gray-400">Version 1.0.0</p>
+      <p className="mt-12 text-xs text-gray-400">Version 2.0.0</p>
     </div>
   );
 
@@ -205,9 +208,18 @@ const App: React.FC = () => {
   const renderResults = () => {
     if (!analysisResult) return null;
 
-    const chartData: ChartData[] = [
+    const qualityPercentage = analysisResult.total > 0 
+      ? (analysisResult.healthy / analysisResult.total) * 100 
+      : 0;
+
+    const pieData: ChartData[] = [
       { name: 'Sifatli', value: analysisResult.healthy, fill: '#16a34a' },
       { name: 'Shikastlangan', value: analysisResult.broken, fill: '#dc2626' },
+    ];
+
+    const barData = [
+      { name: "Sog'lom", soni: analysisResult.healthy, fill: '#16a34a' },
+      { name: 'Yaroqsiz', soni: analysisResult.broken, fill: '#dc2626' },
     ];
 
     return (
@@ -215,7 +227,7 @@ const App: React.FC = () => {
         {/* Header - Fixed Height on desktop */}
         <div className="bg-white shadow-sm border-b border-gray-100 shrink-0 px-4 md:px-6 py-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
-               <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center text-green-600 font-bold shadow-sm">
+               <div className="w-8 h-8 bg-gradient-to-br from-green-100 to-emerald-100 rounded-lg flex items-center justify-center text-green-600 font-bold shadow-sm">
                  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
                  </svg>
@@ -225,18 +237,32 @@ const App: React.FC = () => {
                  <span className="text-[10px] text-gray-400 font-medium">Tahlil hisoboti</span>
                </div>
             </div>
-            <button 
-              onClick={resetApp} 
-              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-all"
-              title="Chiqish"
-            >
-                <ExitIcon />
-            </button>
+            <div className="flex items-center gap-2">
+              {/* Quality badge in header */}
+              <span className={`hidden sm:inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold ${
+                qualityPercentage >= 80 ? 'bg-green-50 text-green-700 border border-green-200' :
+                qualityPercentage >= 60 ? 'bg-orange-50 text-orange-700 border border-orange-200' :
+                'bg-red-50 text-red-700 border border-red-200'
+              }`}>
+                <span className={`w-2 h-2 rounded-full ${
+                  qualityPercentage >= 80 ? 'bg-green-500' :
+                  qualityPercentage >= 60 ? 'bg-orange-500' : 'bg-red-500'
+                }`}></span>
+                Sifat: {qualityPercentage.toFixed(0)}%
+              </span>
+              <button 
+                onClick={resetApp} 
+                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-all"
+                title="Chiqish"
+              >
+                  <ExitIcon />
+              </button>
+            </div>
         </div>
 
-        {/* Content Area - Fits Exactly on Desktop */}
+        {/* Content Area */}
         <div className="flex-1 w-full max-w-7xl mx-auto p-4 md:p-6 lg:overflow-hidden flex flex-col justify-between">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-full lg:overflow-hidden">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 h-full lg:overflow-hidden">
             
             {/* Left Column: Image with Overlays (7 Cols out of 12) */}
             <div className="lg:col-span-7 bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col lg:h-full lg:overflow-hidden justify-between">
@@ -314,7 +340,7 @@ const App: React.FC = () => {
                           <div className={`absolute -top-8 left-1/2 -translate-x-1/2 scale-0 group-hover:scale-100 transition-all text-[10px] font-bold px-2 py-0.5 rounded shadow-xl pointer-events-none whitespace-nowrap z-50 ${
                             isBroken ? 'bg-red-600 text-white' : 'bg-green-600 text-white'
                           }`}>
-                            {isBroken ? "Yaroqsiz / Shikastlangan" : "Sog'lom / Sifatli"}
+                            #{idx + 1} — {isBroken ? "Yaroqsiz / Shikastlangan" : "Sog'lom / Sifatli"}
                           </div>
                           
                           {/* Centered micro-mark */}
@@ -332,70 +358,148 @@ const App: React.FC = () => {
               </p>
             </div>
 
-            {/* Right Column: Mini Dashboard statistics & action buttons (5 Cols out of 12) */}
-            <div className="lg:col-span-5 lg:h-full lg:overflow-y-auto pr-1 flex flex-col justify-between space-y-4 pb-4 lg:pb-0">
+            {/* Right Column: Dashboard (5 Cols out of 12) */}
+            <div className="lg:col-span-5 lg:h-full lg:overflow-y-auto pr-1 flex flex-col space-y-3 pb-4 lg:pb-0">
               
-              {/* Compact horizontal stats row */}
-              <div className="grid grid-cols-3 gap-3">
-                <div className="bg-blue-50/50 border border-blue-100/60 p-3 rounded-xl flex flex-col items-center justify-center text-center shadow-sm">
-                  <div className="text-blue-500 mb-0.5">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" /></svg>
-                  </div>
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Umumiy</span>
-                  <span className="text-lg lg:text-xl font-black text-blue-900 leading-none mt-1">{analysisResult.total}</span>
+              {/* Quality Gauge + Stats Row */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Quality Gauge */}
+                <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex flex-col items-center justify-center">
+                  <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 w-full text-left">Sifat ko'rsatkichi</h4>
+                  <QualityGauge percentage={qualityPercentage} />
                 </div>
-                <div className="bg-green-50/50 border border-green-100/60 p-3 rounded-xl flex flex-col items-center justify-center text-center shadow-sm">
-                  <div className="text-green-500 mb-0.5">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+
+                {/* Compact Stats */}
+                <div className="flex flex-col gap-3">
+                  <div className="bg-blue-50/50 border border-blue-100/60 p-3 rounded-xl flex items-center gap-3 shadow-sm">
+                    <div className="w-9 h-9 bg-blue-100 rounded-lg flex items-center justify-center shrink-0">
+                      <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" /></svg>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold text-gray-400 uppercase block">Umumiy</span>
+                      <span className="text-xl font-black text-blue-900 leading-none">{analysisResult.total}</span>
+                    </div>
                   </div>
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Sog'lom</span>
-                  <span className="text-lg lg:text-xl font-black text-green-900 leading-none mt-1">{analysisResult.healthy}</span>
-                </div>
-                <div className="bg-red-50/50 border border-red-100/60 p-3 rounded-xl flex flex-col items-center justify-center text-center shadow-sm">
-                  <div className="text-red-500 mb-0.5">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                  <div className="bg-green-50/50 border border-green-100/60 p-3 rounded-xl flex items-center gap-3 shadow-sm">
+                    <div className="w-9 h-9 bg-green-100 rounded-lg flex items-center justify-center shrink-0">
+                      <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold text-gray-400 uppercase block">Sog'lom</span>
+                      <span className="text-xl font-black text-green-900 leading-none">{analysisResult.healthy}</span>
+                    </div>
                   </div>
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Yaroqsiz</span>
-                  <span className="text-lg lg:text-xl font-black text-red-950 leading-none mt-1">{analysisResult.broken}</span>
+                  <div className="bg-red-50/50 border border-red-100/60 p-3 rounded-xl flex items-center gap-3 shadow-sm">
+                    <div className="w-9 h-9 bg-red-100 rounded-lg flex items-center justify-center shrink-0">
+                      <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold text-gray-400 uppercase block">Yaroqsiz</span>
+                      <span className="text-xl font-black text-red-950 leading-none">{analysisResult.broken}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
               {/* Uzbek Summary Box */}
               <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
                 <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Tahlil Xulosasi</h4>
-                <p className="text-sm text-gray-700 leading-relaxed max-h-[120px] lg:max-h-[140px] overflow-y-auto pr-1">
+                <p className="text-sm text-gray-700 leading-relaxed max-h-[100px] overflow-y-auto pr-1">
                   {analysisResult.summary}
                 </p>
               </div>
 
-              {/* Chart Component - Compressed height to keep on screen */}
-              <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex flex-col items-center">
-                <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 w-full text-left">Nisbat Diagrammasi</h4>
-                <div className="h-40 w-full relative flex items-center justify-center">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={chartData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={45}
-                        outerRadius={65}
-                        paddingAngle={5}
-                        dataKey="value"
-                      >
-                        {chartData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.fill} />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                      <Legend verticalAlign="bottom" height={24} iconSize={10} wrapperStyle={{ fontSize: 11 }} />
-                    </PieChart>
-                  </ResponsiveContainer>
+              {/* Tabbed Charts + Table Section */}
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                {/* Tab Headers */}
+                <div className="flex border-b border-gray-100">
+                  <button
+                    onClick={() => setActiveTab('chart')}
+                    className={`flex-1 px-4 py-2.5 text-xs font-bold uppercase tracking-wider transition-all ${
+                      activeTab === 'chart' 
+                        ? 'text-green-700 border-b-2 border-green-500 bg-green-50/30' 
+                        : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    📊 Diagrammalar
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('table')}
+                    className={`flex-1 px-4 py-2.5 text-xs font-bold uppercase tracking-wider transition-all ${
+                      activeTab === 'table' 
+                        ? 'text-green-700 border-b-2 border-green-500 bg-green-50/30' 
+                        : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    📋 Jadval
+                  </button>
+                </div>
+
+                {/* Tab Content */}
+                <div className="p-4">
+                  {activeTab === 'chart' ? (
+                    <div className="space-y-4">
+                      {/* Pie Chart */}
+                      <div>
+                        <h5 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Nisbat diagrammasi</h5>
+                        <div className="h-36 w-full">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie
+                                data={pieData}
+                                cx="50%"
+                                cy="50%"
+                                innerRadius={40}
+                                outerRadius={60}
+                                paddingAngle={5}
+                                dataKey="value"
+                              >
+                                {pieData.map((entry, index) => (
+                                  <Cell key={`cell-${index}`} fill={entry.fill} />
+                                ))}
+                              </Pie>
+                              <Tooltip />
+                              <Legend verticalAlign="bottom" height={24} iconSize={10} wrapperStyle={{ fontSize: 11 }} />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+
+                      {/* Bar Chart */}
+                      <div>
+                        <h5 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Solishtirish diagrammasi</h5>
+                        <div className="h-36 w-full">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={barData} barSize={32}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                              <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                              <Tooltip />
+                              <Bar dataKey="soni" radius={[6, 6, 0, 0]}>
+                                {barData.map((entry, index) => (
+                                  <Cell key={`bar-${index}`} fill={entry.fill} />
+                                ))}
+                              </Bar>
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Seed Table */
+                    analysisResult.seeds && analysisResult.seeds.length > 0 ? (
+                      <SeedTable seeds={analysisResult.seeds} />
+                    ) : (
+                      <div className="text-center py-8 text-gray-400 text-sm">
+                        Urug' koordinatalari topilmadi
+                      </div>
+                    )
+                  )}
                 </div>
               </div>
 
               {/* Primary Action Button */}
-              <div className="pt-2">
+              <div className="pt-1">
                  <Button 
                    variant="primary" 
                    fullWidth 

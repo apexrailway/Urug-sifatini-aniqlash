@@ -24,3 +24,9 @@ export interface ChartData {
   value: number;
   fill: string;
 }
+
+export interface BarChartData {
+  name: string;
+  sifatli: number;
+  yaroqsiz: number;
+}
