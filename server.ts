@@ -65,19 +65,23 @@ app.post("/api/analyze-seed", async (req, res) => {
     // Remove base64 metadata prefix if present (e.g. "data:image/jpeg;base64,")
     const cleanBase64 = image.split(",")[1] || image;
 
-    const prompt = `
-      Sen qishloq xo'jaligi va don mahsulotlari sifatini nazorat qilish bo'yicha yuqori malakali mutaxassis va sun'iy intellekt tahlilchisisan. Ushbu rasmdagi barcha urug'larni (donlarni) o'ta yuqori aniqlikda tahlil qil.
-      
-      Quyidagilarni aniqlashing shart:
-      1. Rasmdagi umumiy donlar soni (barcha donlar - to'liq, yarim, chekkadagi va zich joylashgan donlarni ham to'liq qamrab olishga harakat qil).
-      2. Nechtasi sog'lom, butun, pishgan va sifatli.
-      3. Nechtasi singan, shikastlangan, po'sti shilingan, rangi o'zgargan (qora, kulrang nuqtali), chirigan yoki chala pishgan (yaroqsiz donlar).
-      4. Rasmda donlar zich va juda ko'p bo'lsa ham ularning koordinatalarini aniqlash sifatiga katta e'tibor ber. Rasmda aniqlangan donlarning koordinatalarini (bounding box) [ymin, xmin, ymax, xmax] formatida (0 dan 1000 oralig'ida) aniqla. Imkon qadar barcha aniqlangan donlar uchun (120-150 don oralig'ida bo'lsa ham to'liq) koordinatalarini 'seeds' massiviga kirit. Bu orqali foydalanuvchi ekranda donlarning qayerda joylashganini va qaysi biri sog'lom/yaroqsiz ekanligini to'liq ko'ra olsin.
-      
-      5. Qisqacha tahliliy xulosa yoz (o'zbek tilida).
+    const systemInstruction = `Sen qishloq xo'jaligi va urug'chilik bo'yicha yuqori malakali ekspert hamda kompyuter ko'rishi (Computer Vision) tahlilchisisan.
+Vazifang: Rasmdagi har bir alohida urug'ni aniqlash, uning 2D chegaralovchi ramkasini (bounding box [ymin, xmin, ymax, xmax]) topish, sifatini baholash va to'liq tahliliy hisobot tayyorlash.
 
-      Javobni aniq JSON formatida qaytar.
-    `;
+Qat'iy qoidalar:
+1. Chegaralovchi ramkalar (box_2d):
+   - Har bir alohida urug' uchun [ymin, xmin, ymax, xmax] tartibida, 0 dan 1000 oralig'ida butun sonlar (0 <= ymin < ymax <= 1000, 0 <= xmin < xmax <= 1000).
+   - Donlar zich yoki bir-biriga yopishib turgan bo'lsa ham, har bir donni alohida belgilashga harakat qil. Bitta don uchun takroriy ramka qo'shma.
+2. Sifat tasnifi:
+   - 'healthy' (sog'lom): Butun, yorilmagan, to'liq yetilgan, tabiiy rangdagi sifatli toza urug'lar.
+   - 'broken' (yaroqsiz): Singan, yorilgan, qora yoki mog'or dog'li, po'sti zararlangan, chirigan, chala yetilgan yoki begona zararkunanda/iflosliklar.
+3. Matematik muvofiqlik:
+   - 'total' = 'healthy' + 'broken' tenglamasiga qat'iy rioya qil.
+   - 'seeds' massividagi jami elementlar soni ham 'total' ga teng bo'lishi shart.
+4. Xulosa ('summary'):
+   - Mahsulotning umumiy sifati, tozalik darajasi va ekishga yoki saqlashga yaroqliligi haqida o'zbek tilida 2-3 jumlali professional agronomik xulosa yoz.`;
+
+    const prompt = `Ushbu rasmdagi barcha don va urug'larni birma-bir o'ta sinchkovlik bilan aniqla. Har bir aniqlangan don uchun [ymin, xmin, ymax, xmax] chegaralarini (0-1000 oralig'ida) va uning sifat turini ('healthy' yoki 'broken') belgilab ber.`;
 
     // Rasmni tahlil qilish va obyektlarni aniqlash uchun rasmiy gemini-3.8-flash modeli
     const modelsToTry = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-flash-latest"];
@@ -104,17 +108,19 @@ app.post("/api/analyze-seed", async (req, res) => {
             prompt,
           ],
           config: {
+            temperature: 0.1,
+            systemInstruction: systemInstruction,
             responseMimeType: "application/json",
             responseSchema: {
               type: Type.OBJECT,
               properties: {
-                total: { type: Type.NUMBER, description: "Total number of seeds detected" },
+                total: { type: Type.NUMBER, description: "Total number of seeds detected (healthy + broken)" },
                 healthy: { type: Type.NUMBER, description: "Number of healthy, good quality seeds" },
                 broken: { type: Type.NUMBER, description: "Number of broken, immature, or damaged seeds" },
-                summary: { type: Type.STRING, description: "A short summary of the analysis in Uzbek" },
+                summary: { type: Type.STRING, description: "A short professional agronomical summary in Uzbek" },
                 seeds: {
                   type: Type.ARRAY,
-                  description: "Detected seeds coordinates and metadata. Provide coordinates for all detected seeds (up to 150 boxes) to ensure extremely detailed visual mapping.",
+                  description: "Detected seeds coordinates and metadata. Provide coordinates for all detected seeds to ensure detailed visual mapping.",
                   items: {
                     type: Type.OBJECT,
                     properties: {
@@ -172,6 +178,16 @@ app.post("/api/analyze-seed", async (req, res) => {
     if (responseText) {
       try {
         const parsedResult = JSON.parse(responseText.trim());
+
+        // Mantiqiy muvozanatlash va aniqlik nazorati (Data consistency guard)
+        if (Array.isArray(parsedResult.seeds) && parsedResult.seeds.length > 0) {
+          const healthyCount = parsedResult.seeds.filter((s: any) => s.type === "healthy").length;
+          const brokenCount = parsedResult.seeds.filter((s: any) => s.type === "broken").length;
+          parsedResult.healthy = healthyCount;
+          parsedResult.broken = brokenCount;
+          parsedResult.total = parsedResult.seeds.length;
+        }
+
         return res.json(parsedResult);
       } catch (parseError) {
         console.error("Failed to parse Gemini response as JSON:", responseText);
